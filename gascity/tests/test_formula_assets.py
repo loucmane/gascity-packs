@@ -707,22 +707,22 @@ class FormulaAssetTests(unittest.TestCase):
         expected = "\n".join(shared_lines[1:-1]).strip()
 
         for fragment in (
-            "GC_CLAIM",
             "`gc hook --claim --json` is the only permitted discovery source",
-            "gc hook --claim --json",
-            "CLAIMED_BEAD_ID",
-            "CLAIM_REJECTED",
-            "gc runtime drain-ack",
+            "`gc hook --claim --json`, `bd show <claimed-bead-id> --json`",
+            "The three startup operations are deliberately separate native commands",
+            "exact validator path and SHA-256",
             "gc.continuation_group",
             "gc.scope_role=teardown",
             "Never use a bare `bd close` for a bead that asks for close metadata",
-            'bd update "$GC_BEAD_ID"',
+            'bd update "<claimed-bead-id>"',
             "Finding review issues, missing tests, or required follow-up is usually the\nbead's output",
             "check for more routed work before draining",
-            "running the same `GC_CLAIM` block again",
+            "repeating the same three-command startup protocol",
         ):
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, expected)
+        self.assertNotIn("GC_CLAIM", expected)
+        self.assertNotIn("bash <<", expected)
         self.assertNotIn("bd update \"$WORK_ID\" --claim --json", expected)
 
         for agent_name in ROLE_AGENTS:

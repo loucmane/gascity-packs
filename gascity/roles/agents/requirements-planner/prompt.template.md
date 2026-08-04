@@ -18,173 +18,50 @@ metadata searches, mail inspection, session-log inspection, or repository
 context gathering to find a bead. Never work a bead id unless it came from the
 immediately preceding `gc hook --claim --json` result in this claim block.
 
-Your immediate first action must be to run the exact claim command below as a
-single Bash command. Do not rewrite it, compress it into an `&&` chain, or
-debug it if it returns no work. Do not run `gc prime`, load skills, inspect
-runtime state, read repository files, explain the codebase, or gather any
-other context until a bead has been claimed. If the command prints
-`NO_ROUTED_WORK` or `CONFIG_REJECTED`, it has already drain-acked; stop
-immediately and exit. If it prints `CLAIM_REJECTED`, the command is handling a
-claim race internally; wait for it to either claim a bead or drain on no work.
+Your immediate first action must be this one native command:
 
 ```bash
-bash <<'GC_CLAIM'
-set +e
-
-EXPECTED_ASSIGNEE="${BEADS_ACTOR:-${GC_SESSION_NAME:-${GC_SESSION_ID:-${GC_AGENT:-}}}}"
-EXPECTED_ROUTE="${GC_TEMPLATE:-${GC_AGENT:-}}"
-
-if [ -z "$EXPECTED_ASSIGNEE" ]; then
-  echo "CONFIG_REJECTED missing expected assignee"
-  gc runtime drain-ack
-  exit 0
-fi
-
-if ! command -v python3 >/dev/null 2>&1; then
-  echo "CONFIG_REJECTED missing python3"
-  gc runtime drain-ack
-  exit 0
-fi
-
-json_pick() {
-  python3 -c '
-import json
-import sys
-
-path = sys.argv[1]
-try:
-    data = json.load(sys.stdin)
-except Exception:
-    print("")
-    raise SystemExit(0)
-
-if isinstance(data, list):
-    data = data[0] if data else {}
-if not isinstance(data, dict):
-    print("")
-    raise SystemExit(0)
-
-if path.startswith("metadata:"):
-    key = path.split(":", 1)[1]
-    metadata = data.get("metadata") or {}
-    value = metadata.get(key, "") if isinstance(metadata, dict) else ""
-else:
-    value = data.get(path, "")
-
-if value is None:
-    value = ""
-print(value if isinstance(value, str) else str(value))
-' "$1"
-}
-
-while true; do
-  WORK_ID=""
-  CLAIM_JSON=""
-  CLAIM_ERR="$(mktemp)"
-  CLAIM_JSON="$(gc hook --claim --json 2>"$CLAIM_ERR")"
-  CLAIM_CODE=$?
-  CLAIM_ERR_TEXT="$(sed -n '1p' "$CLAIM_ERR")"
-  rm -f "$CLAIM_ERR"
-
-  CLAIM_ACTION="$(printf '%s' "$CLAIM_JSON" | json_pick action)"
-  WORK_ID="$(printf '%s' "$CLAIM_JSON" | json_pick bead_id)"
-  CLAIM_ASSIGNEE="$(printf '%s' "$CLAIM_JSON" | json_pick assignee)"
-  CLAIM_ROUTE="$(printf '%s' "$CLAIM_JSON" | json_pick route)"
-
-  if [ "$CLAIM_ACTION" = "drain" ]; then
-    echo "NO_ROUTED_WORK"
-    gc runtime drain-ack
-    exit 0
-  fi
-
-  if [ "$CLAIM_CODE" -ne 0 ] || [ "$CLAIM_ACTION" != "work" ] || [ -z "$WORK_ID" ]; then
-    if [ -n "$CLAIM_ERR_TEXT" ]; then
-      echo "CLAIM_REJECTED gc hook --claim failed: $CLAIM_ERR_TEXT"
-    else
-      echo "CLAIM_REJECTED unexpected gc hook --claim result"
-    fi
-    sleep 2
-    continue
-  fi
-
-  SHOW_ERR="$(mktemp)"
-  if ! SHOW_JSON="$(bd show "$WORK_ID" --json 2>"$SHOW_ERR")"; then
-    SHOW_ERR_TEXT="$(sed -n '1p' "$SHOW_ERR")"
-    rm -f "$SHOW_ERR"
-    if [ -n "$SHOW_ERR_TEXT" ]; then
-      echo "CLAIM_REJECTED bead read failed for $WORK_ID: $SHOW_ERR_TEXT"
-    else
-      echo "CLAIM_REJECTED bead read failed for $WORK_ID"
-    fi
-    sleep 2
-    continue
-  fi
-  rm -f "$SHOW_ERR"
-
-  CLAIM_ID="$(printf '%s' "$SHOW_JSON" | json_pick id)"
-  CLAIM_STATUS="$(printf '%s' "$SHOW_JSON" | json_pick status)"
-  SHOW_ASSIGNEE="$(printf '%s' "$SHOW_JSON" | json_pick assignee)"
-  if [ -n "$SHOW_ASSIGNEE" ]; then
-    CLAIM_ASSIGNEE="$SHOW_ASSIGNEE"
-  fi
-  SHOW_ROUTE="$(printf '%s' "$SHOW_JSON" | json_pick metadata:gc.routed_to)"
-  if [ -n "$SHOW_ROUTE" ]; then
-    CLAIM_ROUTE="$SHOW_ROUTE"
-  fi
-  CLAIM_ROOT="$(printf '%s' "$SHOW_JSON" | json_pick metadata:gc.root_bead_id)"
-  CLAIM_GROUP="$(printf '%s' "$SHOW_JSON" | json_pick metadata:gc.continuation_group)"
-
-  if [ "$CLAIM_ID" != "$WORK_ID" ]; then
-    echo "CLAIM_REJECTED verification failed for $WORK_ID"
-    sleep 2
-    continue
-  fi
-  case "$CLAIM_STATUS" in
-    open|in_progress) ;;
-    *)
-      echo "CLAIM_REJECTED unexpected status for $WORK_ID: $CLAIM_STATUS"
-      sleep 2
-      continue
-      ;;
-  esac
-  if [ -n "$EXPECTED_ASSIGNEE" ] && [ "$CLAIM_ASSIGNEE" != "$EXPECTED_ASSIGNEE" ]; then
-    echo "CLAIM_REJECTED assignee mismatch for $WORK_ID"
-    sleep 2
-    continue
-  fi
-  if [ -n "$EXPECTED_ROUTE" ] && [ -n "$CLAIM_ROUTE" ] && [ "$CLAIM_ROUTE" != "$EXPECTED_ROUTE" ]; then
-    echo "CLAIM_REJECTED route mismatch for $WORK_ID"
-    sleep 2
-    continue
-  fi
-  break
-done
-
-export GC_BEAD_ID="$WORK_ID"
-export GC_ROOT_BEAD_ID="$CLAIM_ROOT"
-export GC_CONTINUATION_GROUP="$CLAIM_GROUP"
-printf 'CLAIMED_BEAD_ID=%s\n' "$WORK_ID"
-printf 'CLAIMED_ROOT_BEAD_ID=%s\n' "$CLAIM_ROOT"
-printf 'CLAIMED_CONTINUATION_GROUP=%s\n' "$CLAIM_GROUP"
-bd show "$GC_BEAD_ID"
-GC_CLAIM
+gc hook --claim --json
 ```
 
-If claim verification fails, the claim command retries `gc hook --claim
---json`; do not repair the assignment by hand or search for work outside that
-command. Execute exactly the claimed bead's description and result contract.
-Close it with the requested `gc.outcome` metadata. If the bead does not specify
-a failure contract, mark an unrecoverable failure with `gc.outcome=fail` and a
+Do not wrap it in a heredoc, pipeline, command substitution, or compound shell
+expression. Do not run `gc prime`, load skills, inspect runtime state, read
+repository files, explain the codebase, or gather any other context until a
+bead has been claimed. Read the returned JSON directly:
+
+- If `action` is `drain`, run `gc runtime drain-ack` as a separate command and
+  exit immediately.
+- If the command fails or returns anything other than one `work` action with a
+  non-empty `bead_id`, stop. Do not search for replacement work or repair the
+  assignment by hand.
+- If `action` is `work`, copy the returned bead id exactly and immediately run
+  `bd show <claimed-bead-id> --json` as a separate command. Verify that the id
+  matches, status is `open` or `in_progress`, assignee matches this session,
+  and `metadata.gc.routed_to` matches this route when present. A mismatch is a
+  hard stop, not permission to search for another bead.
+
+The three startup operations are deliberately separate native commands:
+`gc hook --claim --json`, `bd show <claimed-bead-id> --json`, and, only on a
+drain result, `gc runtime drain-ack`. This keeps the protocol inspectable by
+managed permission policy and avoids a hidden compound-shell dependency.
+
+Execute exactly the verified bead's description and result contract. Close it
+with the requested `gc.outcome` metadata. If the bead does not specify a
+failure contract, mark an unrecoverable failure with `gc.outcome=fail` and a
 concise `gc.failure_class`/reason before closing it.
+
+When a bead names a validator, use the validator from the pinned pack asset it
+identifies. Before execution, record the exact validator path and SHA-256, then
+run that exact path. Never substitute a similarly named checkout-local script.
 
 Never use a bare `bd close` for a bead that asks for close metadata. First set
 the requested metadata on the claimed bead, then close the same bead id:
 
 ```bash
-bd update "$GC_BEAD_ID" \
+bd update "<claimed-bead-id>" \
   --set-metadata 'gc.outcome=pass' \
   --set-metadata 'example.key=example-value'
-bd close "$GC_BEAD_ID"
+bd close "<claimed-bead-id>"
 ```
 
 Finding review issues, missing tests, or required follow-up is usually the
@@ -192,16 +69,11 @@ bead's output, not a task execution failure. When a review bead asks for
 `gc.outcome=pass` plus verdict metadata, set `gc.outcome=pass` even when the
 verdict is `iterate`, `changes_required`, or similar.
 
-If later terminal commands do not inherit shell variables, use the explicit
-`CLAIMED_BEAD_ID`, `CLAIMED_ROOT_BEAD_ID`, and
-`CLAIMED_CONTINUATION_GROUP` printed by the claim command. Never run `bd
-update` or `bd close` with an empty id.
-
 When updating or closing a bead, pass exactly one explicit claimed bead id.
 Quote every metadata assignment and close reason. Do not put freeform prose or
 bare words after the bead id; `bd` treats every extra positional argument as
 another issue id and may fuzzy-match unrelated beads. Use `bd close
-"$CLAIMED_BEAD_ID" --reason '...'` for close notes.
+"<claimed-bead-id>" --reason '...'` for close notes.
 
 ## Continuation Group Protocol
 
@@ -214,8 +86,9 @@ Important metadata:
 
 After closing a claimed bead, check for more routed work before draining unless
 the bead's result contract explicitly says the final action is to drain and
-exit. Continue by running the same `GC_CLAIM` block again. The block uses
-`gc hook --claim --json`; if it returns no work, it drain-acks and exits.
+exit. Continue by repeating the same three-command startup protocol. If
+`gc hook --claim --json` returns a drain action, run `gc runtime drain-ack` and
+exit.
 
 If you must drain explicitly, run this as your final command and exit:
 
