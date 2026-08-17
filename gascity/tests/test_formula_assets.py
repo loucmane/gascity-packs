@@ -3001,7 +3001,6 @@ class FormulaAssetTests(unittest.TestCase):
             "do not use the synthetic drain-unit convoy id as `<source-anchor-id>`",
             "never persist `work_dir` on the synthetic drain-unit convoy",
             "hard-fail if the selected source anchor id equals the synthetic input convoy id",
-            "worktrees/<source-anchor-id>",
             "git worktree add",
             "bd update <source-anchor-id> --set-metadata work_dir=",
             "Do not edit source files in the launcher checkout",
@@ -3038,6 +3037,65 @@ class FormulaAssetTests(unittest.TestCase):
         ):
             with self.subTest(step="close-source-anchor", fragment=fragment):
                 self.assertIn(fragment, close_source)
+
+    def test_prepare_worktree_uses_explicit_base_when_launcher_head_is_unrelated(self) -> None:
+        root = pathlib.Path(__file__).resolve().parents[1]
+        do_work = tomllib.loads((root / "formulas" / "do-work.formula.toml").read_text(encoding="utf-8"))
+        steps = {step["id"]: step for step in do_work["steps"]}
+        prepare = node_description(root, steps["prepare-worktree"])
+
+        # Regression for blog-arf/blog-7zd: the launcher checkout may be on an
+        # unrelated branch whose HEAD does not contain the implementation target.
+        for fragment in (
+            "input convoy's top-level `target`",
+            "`gc.base_commit`",
+            "`gc.base_ref`",
+            "launcher checkout's `HEAD` is unrelated",
+            "`gc.conflict_base_commit`",
+            'git worktree add "$WORKTREE" --detach "$BASE_COMMIT"',
+            'git -C "$WORKTREE" rev-parse HEAD',
+        ):
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, prepare)
+
+        self.assertNotIn("--detach HEAD", prepare)
+
+    def test_prepare_worktree_uses_policy_path_outside_launcher_checkout(self) -> None:
+        root = pathlib.Path(__file__).resolve().parents[1]
+        do_work = tomllib.loads((root / "formulas" / "do-work.formula.toml").read_text(encoding="utf-8"))
+        steps = {step["id"]: step for step in do_work["steps"]}
+        prepare = node_description(root, steps["prepare-worktree"])
+
+        # The live rig forbids placing implementation worktrees below its
+        # protected launcher checkout, even when that checkout is the cwd.
+        for fragment in (
+            "source anchor's existing `work_dir`",
+            "`gc.worktree_path`",
+            "`gc.worktree_root`",
+            "`WORKTREE_POLICY.md`",
+            "outside the launcher checkout",
+            "`gc.conflict_worktree_path`",
+        ):
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, prepare)
+
+        self.assertNotIn("$(pwd)/worktrees/", prepare)
+
+    def test_prepare_worktree_fails_closed_without_explicit_base_or_policy_path(self) -> None:
+        root = pathlib.Path(__file__).resolve().parents[1]
+        do_work = tomllib.loads((root / "formulas" / "do-work.formula.toml").read_text(encoding="utf-8"))
+        steps = {step["id"]: step for step in do_work["steps"]}
+        prepare = node_description(root, steps["prepare-worktree"])
+
+        for fragment in (
+            "no explicit base candidate is present",
+            "explicit base candidates resolve to different commits",
+            "no explicit or policy-derived worktree location is present",
+            "worktree path candidates contradict each other",
+            "fail closed",
+        ):
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, prepare)
 
     def test_wrapper_formulas_route_role_agents(self) -> None:
         root = pathlib.Path(__file__).resolve().parents[1]
