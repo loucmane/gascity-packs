@@ -3046,7 +3046,10 @@ class FormulaAssetTests(unittest.TestCase):
         helper = root / "assets" / "scripts" / "prepare_worktree.py"
 
         for fragment in (
-            '{{pack_root}}/assets/scripts/prepare_worktree.py --request "$REQUEST_JSON"',
+            '"$(dirname "$FORMULA_SOURCE")/../assets/scripts/prepare_worktree.py" --request "$REQUEST_JSON"',
+            "`REQUEST_JSON`\n   is a file path, not inline JSON",
+            "`gc.formula_source` from the do-work\n   root metadata",
+            "same pinned pack revision that supplied the formula",
             "sole authority for base/path resolution",
             "do not restate, reimplement, or bypass",
             "`gc.conflict_base_commit`",

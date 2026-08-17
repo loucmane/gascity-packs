@@ -20,9 +20,15 @@ setup only. Do not edit source files in the launcher checkout.
    (a checkout of the source repository), `launcher_checkout` (the current
    launcher's top-level checkout), `source_anchor_id`, and the exact JSON records
    already read as `source_anchor`, `input_convoy`, and `do_work_root`. Do not
-   add inferred base or path candidates to the request.
+   add inferred base or path candidates to the request. Write that object to a
+   file and set `REQUEST_JSON` to the absolute path of that file; `REQUEST_JSON`
+   is a file path, not inline JSON. Read `gc.formula_source` from the do-work
+   root metadata, require it to be an absolute path to the cooked
+   `do-work.formula.toml`, and set `FORMULA_SOURCE` to that exact value. This
+   binds the helper to the same pinned pack revision that supplied the formula;
+   do not search `PATH`, pack caches, or the launcher checkout for another copy.
 4. Run
-   `{{pack_root}}/assets/scripts/prepare_worktree.py --request "$REQUEST_JSON"`.
+   `"$(dirname "$FORMULA_SOURCE")/../assets/scripts/prepare_worktree.py" --request "$REQUEST_JSON"`.
    This helper is the sole authority for base/path resolution, policy checks,
    and worktree creation or reuse; do not restate, reimplement, or bypass its
    decisions. A launcher checkout's `HEAD` is unrelated runtime state and is
