@@ -16,35 +16,31 @@ setup only. Do not edit source files in the launcher checkout.
    - if root metadata also has `gc.drain_member_id`, it must match the selected
      drain member
 3. Read the selected source anchor with `bd show <source-anchor-id> --json`.
-   Resolve an explicit base from the source anchor's or input convoy's metadata
-   keys `gc.base_commit` and `gc.base_ref`, plus the input convoy's top-level `target`.
-   Resolve every supplied candidate to a commit in this repository.
-   All supplied candidates must resolve to the same commit, stored as
-   `BASE_COMMIT`. A launcher checkout's `HEAD` is unrelated runtime state:
-   never use it as a base candidate or fallback. If no explicit base candidate is present,
-   a candidate cannot resolve, or explicit base candidates resolve to different commits,
-   record `gc.conflict_base_commit` and fail closed.
-4. Resolve `WORKTREE` without using the current directory as a default. Accept
-   the source anchor's existing `work_dir`, an absolute `gc.worktree_path`, or
-   a path formed by appending `<source-anchor-id>` to an absolute
-   `gc.worktree_root`; these explicit metadata keys may be on the source anchor,
-   input convoy, or do-work root. Also read the launcher rig root from the
-   do-work root's `gc.work_dir` and obey its `WORKTREE_POLICY.md`, including any
-   policy-derived worktree root. Canonicalize every resulting candidate and
-   require it to select the same location. The selected path must satisfy the
-   rig policy and be outside the launcher checkout and every other protected
-   checkout. If no explicit or policy-derived worktree location is present,
-   worktree path candidates contradict each other, or the selected path violates
-   policy, record `gc.conflict_worktree_path` and fail closed. A valid
-   pre-provisioned source-anchor `work_dir` must be reused, not replaced.
-5. Validate context path {{context_path}}, files ownership, and verification
-   policy for the resolved source anchor. If `WORKTREE` is missing, create it at
-   the resolved external path with
-   `git worktree add "$WORKTREE" --detach "$BASE_COMMIT"`. If it exists, verify
-   it is this repository's worktree. In both cases, verify
-   `git -C "$WORKTREE" rev-parse HEAD` equals `BASE_COMMIT`; never substitute
-   launcher state for either value.
-6. Persist the absolute path on the source anchor with
+   Serialize a request JSON object containing only these fields: `repository`
+   (a checkout of the source repository), `launcher_checkout` (the current
+   launcher's top-level checkout), `source_anchor_id`, and the exact JSON records
+   already read as `source_anchor`, `input_convoy`, and `do_work_root`. Do not
+   add inferred base or path candidates to the request.
+4. Run
+   `{{pack_root}}/assets/scripts/prepare_worktree.py --request "$REQUEST_JSON"`.
+   This helper is the sole authority for base/path resolution, policy checks,
+   and worktree creation or reuse; do not restate, reimplement, or bypass its
+   decisions. A launcher checkout's `HEAD` is unrelated runtime state and is
+   never a fallback. `WORKTREE_POLICY.md` may expose machine-readable
+   `<!-- gc.worktree_root=/absolute/path -->` and
+   `<!-- gc.protected_checkout=/absolute/path -->` directives to the helper.
+   On success, read `BASE_COMMIT` from `base_commit` and `WORKTREE` from
+   `worktree_path` in its JSON output. The helper verifies that the actual
+   worktree `HEAD` equals the explicit base and reports whether a valid
+   pre-provisioned source-anchor `work_dir` was reused.
+5. On a nonzero helper exit, persist each emitted metadata entry on the current
+   step with `bd update <claimed-step-id> --set-metadata <key>=<value>`, then
+   fail closed. Contradictory, unresolvable, or missing base input emits
+   `gc.conflict_base_commit`; contradictory, unsafe, or missing explicit or
+   policy-derived path input emits `gc.conflict_worktree_path`. Never substitute
+   launcher `HEAD` or an in-repository default path.
+6. Validate context path {{context_path}}, files ownership, and verification
+   policy for the resolved source anchor. Persist the absolute path on the source anchor with
    `bd update <source-anchor-id> --set-metadata work_dir=<absolute worktree path>`.
    For synthetic drain-unit convoys, never persist `work_dir` on the synthetic drain-unit convoy; the original drain member/source anchor is authoritative.
    Verify the source anchor now has `work_dir` before closing this step with
