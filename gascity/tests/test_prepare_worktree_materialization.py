@@ -60,6 +60,7 @@ class PrepareWorktreeMaterializationTests(unittest.TestCase):
             run_git(launcher, "init", "--quiet")
             run_git(launcher, "config", "user.name", "Materialization Test")
             run_git(launcher, "config", "user.email", "materialization@example.invalid")
+            run_git(launcher, "config", "commit.gpgsign", "false")
             (launcher / "README.md").write_text("clean launcher\n", encoding="utf-8")
             run_git(launcher, "add", "README.md")
             run_git(launcher, "commit", "--quiet", "-m", "fixture")
