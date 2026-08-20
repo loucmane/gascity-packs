@@ -96,6 +96,9 @@ class PrepareWorktreeBehaviorTests(unittest.TestCase):
         self.assertEqual(self._git("rev-parse", "HEAD", cwd=self.launcher).stdout.strip(), self.launcher_commit)
         return payload
 
+    def _branch(self, worktree: pathlib.Path) -> str:
+        return self._git("symbolic-ref", "--short", "HEAD", cwd=worktree).stdout.strip()
+
     def test_explicit_base_and_path_create_external_worktree_from_base(self) -> None:
         worktree = self.temp / "worktrees" / "explicit-anchor"
         result, payload = self._run_helper(
@@ -114,6 +117,8 @@ class PrepareWorktreeBehaviorTests(unittest.TestCase):
         self.assertEqual(payload.get("base_commit"), self.base_commit)
         self.assertEqual(pathlib.Path(str(payload.get("worktree_path"))).resolve(), worktree.resolve())
         self.assertEqual(self._git("rev-parse", "HEAD", cwd=worktree).stdout.strip(), self.base_commit)
+        self.assertEqual(payload.get("branch"), "codex/anchor-123")
+        self.assertEqual(self._branch(worktree), "codex/anchor-123")
         self.assertTrue((worktree / "target-subtree" / "implementation.txt").is_file())
         self.assertNotEqual(self._git("rev-parse", "HEAD", cwd=worktree).stdout.strip(), self.launcher_commit)
         self.assertNotEqual(worktree, self.launcher)
@@ -141,6 +146,8 @@ class PrepareWorktreeBehaviorTests(unittest.TestCase):
         self.assertTrue(payload.get("ok"), payload)
         self.assertEqual(pathlib.Path(str(payload.get("worktree_path"))).resolve(), expected.resolve())
         self.assertEqual(self._git("rev-parse", "HEAD", cwd=expected).stdout.strip(), self.base_commit)
+        self.assertEqual(payload.get("branch"), "codex/anchor-123")
+        self.assertEqual(self._branch(expected), "codex/anchor-123")
         self.assertNotIn(self.launcher, expected.parents)
 
     def test_reuses_preprovisioned_source_anchor_work_dir(self) -> None:
@@ -167,6 +174,44 @@ class PrepareWorktreeBehaviorTests(unittest.TestCase):
         self.assertEqual(worktree.stat().st_ino, before.st_ino)
         self.assertEqual(marker.read_text(encoding="utf-8"), "keep me\n")
         self.assertEqual(self._git("rev-parse", "HEAD", cwd=worktree).stdout.strip(), self.base_commit)
+        self.assertEqual(payload.get("branch"), "codex/anchor-123")
+        self.assertEqual(self._branch(worktree), "codex/anchor-123")
+
+        second_result, second_payload = self._run_helper(
+            self._request(
+                source_anchor={
+                    "metadata": {
+                        "gc.base_commit": self.base_commit,
+                        "work_dir": str(worktree),
+                    }
+                }
+            )
+        )
+        self.assertEqual(second_result.returncode, 0, second_result.stdout + second_result.stderr)
+        self.assertTrue(second_payload.get("reused"), second_payload)
+        self.assertEqual(second_payload.get("branch"), "codex/anchor-123")
+        self.assertEqual(self._branch(worktree), "codex/anchor-123")
+        self.assertEqual(marker.read_text(encoding="utf-8"), "keep me\n")
+
+    def test_existing_item_branch_at_another_commit_fails_closed(self) -> None:
+        branch = "codex/anchor-123"
+        worktree = self.temp / "worktrees" / "branch-conflict"
+        self._git("branch", branch, self.launcher_commit, cwd=self.launcher)
+
+        payload = self._assert_conflict(
+            self._request(
+                source_anchor={
+                    "metadata": {
+                        "gc.base_commit": self.base_commit,
+                        "gc.worktree_path": str(worktree),
+                    }
+                }
+            ),
+            "gc.conflict_worktree_branch",
+        )
+
+        self.assertIn(branch, str(payload["metadata"]["gc.conflict_worktree_branch"]))
+        self.assertFalse(worktree.exists())
 
     def test_contradictory_base_candidates_emit_conflict_and_fail_closed(self) -> None:
         worktree = self.temp / "worktrees" / "base-conflict"
