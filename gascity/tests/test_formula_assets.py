@@ -2058,12 +2058,29 @@ class FormulaAssetTests(unittest.TestCase):
         ):
             text = (root / relative_path).read_text(encoding="utf-8")
             for fragment in (
-                "read the launcher rig root from the workflow root bead's `gc.work_dir`",
-                "GC_BEAD_ID=<claimed-step-id> .gc/scripts/checks/build-artifact-valid.sh",
+                "controller executes the authoritative validation gate",
+                "absolute `gc.check_path`",
+                "Do not run the validator from the worker",
                 "fix every reported validation error before setting `gc.outcome=pass`",
             ):
                 with self.subTest(asset=relative_path, fragment=fragment):
                     self.assertIn(fragment, text)
+            self.assertNotIn("launcher rig root", text)
+            self.assertNotIn(BUILD_ARTIFACT_CHECK_SCRIPT, text)
+
+    def test_all_build_artifact_prompts_defer_to_controller_stamped_gate(self) -> None:
+        root = pathlib.Path(__file__).resolve().parents[1]
+        matched = 0
+        for path in sorted((root / "assets" / "workflows").glob("**/*.md")):
+            text = path.read_text(encoding="utf-8")
+            if "Artifact validation:" not in text:
+                continue
+            matched += 1
+            with self.subTest(asset=str(path.relative_to(root))):
+                self.assertNotIn(BUILD_ARTIFACT_CHECK_SCRIPT, text)
+                self.assertIn("controller-stamped absolute `gc.check_path`", text)
+                self.assertIn("Do not run this validator from the worker", text)
+        self.assertGreater(matched, 20)
 
     def test_build_artifact_prompts_use_set_metadata_for_paths(self) -> None:
         root = pathlib.Path(__file__).resolve().parents[1]
@@ -4027,6 +4044,12 @@ description = "Override sink that writes the base triage report contract."
             self.assertTrue(os.access(script, os.X_OK), f"{script} must be executable")
             self.assertNotIn("/data/projects", text)
             self.assertNotIn("gascity-packs-worktrees", text)
+
+        build_artifact = (root / "assets" / "scripts" / "checks" / "build-artifact-valid.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('GC_STORE_PATH="${GC_STORE_PATH:-}"', build_artifact)
+        self.assertIn('export BEADS_DIR="$GC_STORE_PATH/.beads"', build_artifact)
 
     def test_producer_stages_gate_artifacts_with_bounded_repair(self) -> None:
         root = pathlib.Path(__file__).resolve().parents[1]
