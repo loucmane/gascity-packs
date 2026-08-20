@@ -10,8 +10,9 @@ validate that it is an absolute existing git worktree, set `WORKTREE` to that
 path, then `cd "$WORKTREE"` before reading or editing source files. If
 `work_dir` is missing, invalid, or points at the launcher checkout, fail this step before editing.
 
-`gc.work_dir` is the launcher rig root, not the implementation worktree. Use
-`gc.work_dir` only later to run `.gc/scripts/checks/build-artifact-valid.sh`.
+`gc.work_dir` is the launcher rig root, not the implementation worktree. The
+controller owns artifact validation; never use `gc.work_dir` to locate or run
+a validator.
 After resolving `WORKTREE`, run `cd "$WORKTREE"` and verify `pwd -P` equals
 `$WORKTREE` before any source read, source edit, test, file hash, `git add`, or
 `git commit`. If a command uses the launcher checkout path for source edits,
@@ -68,4 +69,4 @@ Trace front matter must use the validator shape exactly:
   requirements; do not use `approved` in `trace.coverage[].status` or the
   Markdown coverage table.
 
-Artifact validation: this step is gated by `.gc/scripts/checks/build-artifact-valid.sh`, which validates the summary recorded at `gc.implementation.summary_path` (fallbacks `gc.build.implementation_summary_path`, then `gc.var.summary_path`) against schema `gc.build.implementation-summary.v1`. Before closing this step, read the launcher rig root from the workflow root bead's `gc.work_dir`, then run the same validator locally from that rig root with `GC_BEAD_ID=<claimed-step-id> .gc/scripts/checks/build-artifact-valid.sh`; fix every reported validation error before setting `gc.outcome=pass`. On repair attempts (`gc.attempt` greater than 1), read the validator errors from `gc.attempt_log` on the validation loop control bead (the dependent of this step bead) and repair the summary in place instead of rewriting it. Two bounded repair attempts follow the first failure; exhausting them closes this stage with `gc.outcome=fail` and machine-readable validation errors that block downstream stages. Never ask questions in headless mode; record unresolved ambiguity inside the summary.
+Artifact validation: the controller executes the authoritative validation gate from the controller-stamped absolute `gc.check_path`, which validates the summary recorded at `gc.implementation.summary_path` (fallbacks `gc.build.implementation_summary_path`, then `gc.var.summary_path`) against schema `gc.build.implementation-summary.v1`. The controller executes this gate after the producer closes. Do not run this validator from the worker; on a retry, fix every reported validation error before setting `gc.outcome=pass`, using `gc.attempt_log` as the authoritative repair context. On repair attempts (`gc.attempt` greater than 1), read the validator errors from `gc.attempt_log` on the validation loop control bead (the dependent of this step bead) and repair the summary in place instead of rewriting it. Two bounded repair attempts follow the first failure; exhausting them closes this stage with `gc.outcome=fail` and machine-readable validation errors that block downstream stages. Never ask questions in headless mode; record unresolved ambiguity inside the summary.

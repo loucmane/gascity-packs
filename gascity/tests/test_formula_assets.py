@@ -2060,12 +2060,15 @@ class FormulaAssetTests(unittest.TestCase):
             for fragment in (
                 "controller executes the authoritative validation gate",
                 "absolute `gc.check_path`",
-                "Do not run the validator from the worker",
+                "Do not run this validator from the worker",
                 "fix every reported validation error before setting `gc.outcome=pass`",
             ):
                 with self.subTest(asset=relative_path, fragment=fragment):
                     self.assertIn(fragment, text)
-            self.assertNotIn("launcher rig root", text)
+            self.assertNotIn(
+                "read the launcher rig root from the workflow root bead's",
+                text,
+            )
             self.assertNotIn(BUILD_ARTIFACT_CHECK_SCRIPT, text)
 
     def test_all_build_artifact_prompts_defer_to_controller_stamped_gate(self) -> None:
@@ -4098,12 +4101,16 @@ description = "Override sink that writes the base triage report contract."
             bin_dir.mkdir()
             show_dir = tmp / "show"
             show_dir.mkdir()
+            city_store = tmp / "city"
+            (city_store / ".beads").mkdir(parents=True)
             for bead, payload in beads_by_id.items():
                 (show_dir / f"{bead}.json").write_text(payload, encoding="utf-8")
             fake_gc = bin_dir / "gc"
             fake_gc.write_text(
                 "#!/usr/bin/env bash\n"
                 "set -euo pipefail\n"
+                "[ \"${BEADS_DIR:-}\" = \"$EXPECTED_BEADS_DIR\" ] || "
+                "{ echo \"wrong BEADS_DIR: ${BEADS_DIR:-<unset>}\" >&2; exit 3; }\n"
                 "while [ \"${1:-}\" != \"bd\" ]; do shift; done\n"
                 "shift\n"
                 "case \"$1\" in\n"
@@ -4120,6 +4127,9 @@ description = "Override sink that writes the base triage report contract."
                 "PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}",
                 "BD_SHOW_DIR": str(show_dir),
                 "GC_BEAD_ID": bead_id,
+                "GC_STORE_PATH": str(city_store),
+                "BEADS_DIR": str(tmp / "ambient-wrong-store" / ".beads"),
+                "EXPECTED_BEADS_DIR": str(city_store / ".beads"),
                 **(extra_env or {}),
             }
             return subprocess.run(
@@ -4546,6 +4556,16 @@ description = "Override sink that writes the base triage report contract."
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("build artifact valid", result.stdout)
+
+    def test_build_artifact_check_requires_controller_store_path(self) -> None:
+        result = self._run_build_artifact_check(
+            {"loop": '[{"id": "loop", "metadata": {}}]'},
+            "loop",
+            extra_env={"GC_STORE_PATH": ""},
+        )
+
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("GC_STORE_PATH is required", result.stderr)
 
     def test_build_artifact_check_blocks_invalid_artifact_with_repair_context(self) -> None:
         with tempfile.TemporaryDirectory() as artifact_dir:
