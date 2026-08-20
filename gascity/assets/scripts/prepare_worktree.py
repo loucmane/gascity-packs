@@ -13,6 +13,7 @@ from typing import Any
 
 BASE_CONFLICT = "gc.conflict_base_commit"
 WORKTREE_CONFLICT = "gc.conflict_worktree_path"
+BRANCH_CONFLICT = "gc.conflict_worktree_branch"
 POLICY_DIRECTIVE = re.compile(
     r"(?:<!--\s*)?(gc\.(?:worktree_root|protected_checkout))\s*[:=]\s*(.*?)\s*(?:-->)?\s*$"
 )
@@ -38,6 +39,71 @@ def run_git(repository: Path, *args: str) -> str:
         detail = result.stderr.strip() or result.stdout.strip() or f"git exited {result.returncode}"
         raise RuntimeError(detail)
     return result.stdout.strip()
+
+
+def optional_git(repository: Path, *args: str) -> str | None:
+    result = subprocess.run(
+        ["git", "-C", str(repository), *args],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode == 1:
+        return None
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip() or f"git exited {result.returncode}"
+        raise RuntimeError(detail)
+    return result.stdout.strip()
+
+
+def item_branch(repository: Path, source_anchor_id: str) -> str:
+    branch = f"codex/{source_anchor_id}"
+    try:
+        run_git(repository, "check-ref-format", "--branch", branch)
+    except RuntimeError as exc:
+        raise ContractConflict(BRANCH_CONFLICT, f"derived item branch is invalid: {branch!r}: {exc}") from exc
+    return branch
+
+
+def local_branch_commit(repository: Path, branch: str) -> str | None:
+    try:
+        return optional_git(
+            repository,
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            f"refs/heads/{branch}^{{commit}}",
+        )
+    except RuntimeError as exc:
+        raise ContractConflict(BRANCH_CONFLICT, f"cannot inspect item branch {branch!r}: {exc}") from exc
+
+
+def attach_item_branch(worktree: Path, branch: str, base_commit: str) -> None:
+    try:
+        current = optional_git(worktree, "symbolic-ref", "--quiet", "--short", "HEAD")
+        if current is None:
+            branch_commit = local_branch_commit(worktree, branch)
+            if branch_commit is None:
+                run_git(worktree, "switch", "-c", branch, base_commit)
+            elif branch_commit == base_commit:
+                run_git(worktree, "switch", branch)
+            else:
+                raise ContractConflict(
+                    BRANCH_CONFLICT,
+                    f"item branch {branch!r} points at {branch_commit}, expected {base_commit}",
+                )
+        elif current != branch:
+            raise ContractConflict(
+                BRANCH_CONFLICT,
+                f"existing worktree is on branch {current!r}, expected {branch!r}",
+            )
+        current = optional_git(worktree, "symbolic-ref", "--quiet", "--short", "HEAD")
+    except ContractConflict:
+        raise
+    except RuntimeError as exc:
+        raise ContractConflict(BRANCH_CONFLICT, f"cannot attach item branch {branch!r}: {exc}") from exc
+    if current != branch:
+        raise ContractConflict(BRANCH_CONFLICT, f"worktree did not attach item branch {branch!r}")
 
 
 def canonical_path(raw: object, *, label: str, conflict_key: str) -> Path:
@@ -243,6 +309,13 @@ def prepare(request: dict[str, Any]) -> dict[str, Any]:
         raise ContractConflict(BASE_CONFLICT, f"repository is not a usable git checkout: {exc}") from exc
 
     base_commit = resolve_base(repository_root, source_anchor, input_convoy)
+    branch = item_branch(repository_root, source_anchor_id)
+    branch_commit = local_branch_commit(repository_root, branch)
+    if branch_commit is not None and branch_commit != base_commit:
+        raise ContractConflict(
+            BRANCH_CONFLICT,
+            f"item branch {branch!r} points at {branch_commit}, expected explicit base {base_commit}",
+        )
     worktree, _, policy_protected = resolve_worktree(
         source_anchor_id,
         source_anchor,
@@ -275,13 +348,17 @@ def prepare(request: dict[str, Any]) -> dict[str, Any]:
                 BASE_CONFLICT,
                 f"existing worktree HEAD {actual_head} does not equal explicit base {base_commit}",
             )
+        attach_item_branch(worktree, branch, base_commit)
         reused = True
     else:
         if worktree in registered:
             raise ContractConflict(WORKTREE_CONFLICT, f"registered worktree path is missing: {worktree}")
         worktree.parent.mkdir(parents=True, exist_ok=True)
         try:
-            run_git(repository_root, "worktree", "add", str(worktree), "--detach", base_commit)
+            if branch_commit is None:
+                run_git(repository_root, "worktree", "add", "-b", branch, str(worktree), base_commit)
+            else:
+                run_git(repository_root, "worktree", "add", str(worktree), branch)
             actual_head = run_git(worktree, "rev-parse", "HEAD")
         except (OSError, RuntimeError) as exc:
             raise ContractConflict(WORKTREE_CONFLICT, f"cannot create worktree {worktree}: {exc}") from exc
@@ -290,11 +367,13 @@ def prepare(request: dict[str, Any]) -> dict[str, Any]:
                 BASE_CONFLICT,
                 f"created worktree HEAD {actual_head} does not equal explicit base {base_commit}",
             )
+        attach_item_branch(worktree, branch, base_commit)
         reused = False
 
     return {
         "ok": True,
         "base_commit": base_commit,
+        "branch": branch,
         "worktree_path": str(worktree),
         "reused": reused,
         "metadata": {},

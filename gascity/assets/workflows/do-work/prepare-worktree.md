@@ -29,22 +29,27 @@ setup only. Do not edit source files in the launcher checkout.
    do not search `PATH`, pack caches, or the launcher checkout for another copy.
 4. Run
    `"$(dirname "$FORMULA_SOURCE")/../assets/scripts/prepare_worktree.py" --request "$REQUEST_JSON"`.
-   This helper is the sole authority for base/path resolution, policy checks,
-   and worktree creation or reuse; do not restate, reimplement, or bypass its
-   decisions. A launcher checkout's `HEAD` is unrelated runtime state and is
+   This helper is the sole authority for base/path resolution, item-branch
+   creation, policy checks, and worktree creation or reuse.
+   Do not restate, reimplement, or bypass its decisions. A launcher checkout's
+   `HEAD` is unrelated runtime state and is
    never a fallback. `WORKTREE_POLICY.md` may expose machine-readable
    `<!-- gc.worktree_root=/absolute/path -->` and
    `<!-- gc.protected_checkout=/absolute/path -->` directives to the helper.
-   On success, read `BASE_COMMIT` from `base_commit` and `WORKTREE` from
-   `worktree_path` in its JSON output. The helper verifies that the actual
-   worktree `HEAD` equals the explicit base and reports whether a valid
-   pre-provisioned source-anchor `work_dir` was reused.
+   On success, read `BASE_COMMIT` from `base_commit`, `WORKTREE` from
+   `worktree_path`, and `BRANCH` from `branch` in its JSON output. The helper
+   verifies that the actual worktree `HEAD` equals the explicit base, attaches
+   the worktree to the deterministic local `codex/<source-anchor-id>` branch,
+   and reports whether a valid pre-provisioned source-anchor `work_dir` was
+   reused. Never leave a successful prepared worktree detached.
 5. On a nonzero helper exit, persist each emitted metadata entry on the current
    step with `gc bd update <claimed-step-id> --set-metadata <key>=<value>`, then
    fail closed. Contradictory, unresolvable, or missing base input emits
    `gc.conflict_base_commit`; contradictory, unsafe, or missing explicit or
    policy-derived path input emits `gc.conflict_worktree_path`. Never substitute
-   launcher `HEAD` or an in-repository default path.
+   launcher `HEAD` or an in-repository default path. An invalid, conflicting,
+   or already-occupied item branch emits `gc.conflict_worktree_branch`; never
+   invent an alternate branch name.
 6. Validate context path {{context_path}}, files ownership, and verification
    policy for the resolved source anchor. Persist the absolute path on the source
    anchor with `gc bd update <source-anchor-id> --set-metadata work_dir=<absolute worktree path>`.
