@@ -3457,8 +3457,7 @@ class FormulaAssetTests(unittest.TestCase):
             "do not use the synthetic drain-unit convoy id as `<source-anchor-id>`",
             "never persist `work_dir` on the synthetic drain-unit convoy",
             "hard-fail if the selected source anchor id equals the synthetic input convoy id",
-            "worktrees/<source-anchor-id>",
-            "git worktree add",
+            "assets/scripts/prepare_worktree.py",
             "gc bd update <source-anchor-id> --set-metadata work_dir=",
             "Do not edit source files in the launcher checkout",
         ):
@@ -3494,6 +3493,33 @@ class FormulaAssetTests(unittest.TestCase):
         ):
             with self.subTest(step="close-source-anchor", fragment=fragment):
                 self.assertIn(fragment, close_source)
+
+    def test_prepare_worktree_delegates_resolution_to_executable_helper(self) -> None:
+        root = pathlib.Path(__file__).resolve().parents[1]
+        do_work = tomllib.loads((root / "formulas" / "do-work.formula.toml").read_text(encoding="utf-8"))
+        steps = {step["id"]: step for step in do_work["steps"]}
+        prepare = node_description(root, steps["prepare-worktree"])
+        helper = root / "assets" / "scripts" / "prepare_worktree.py"
+
+        for fragment in (
+            '"$(dirname "$FORMULA_SOURCE")/../assets/scripts/prepare_worktree.py" --request "$REQUEST_JSON"',
+            "`REQUEST_JSON`\n   is a file path, not inline JSON",
+            "`gc.formula_source` from the do-work\n   root metadata",
+            "same pinned pack revision that supplied the formula",
+            "sole authority for base/path resolution",
+            "do not restate, reimplement, or bypass",
+            "`gc.conflict_base_commit`",
+            "`gc.conflict_worktree_path`",
+            "Never substitute\n   launcher `HEAD` or an in-repository default path",
+        ):
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, prepare)
+
+        self.assertTrue(helper.is_file())
+        self.assertTrue(os.access(helper, os.X_OK))
+        self.assertNotIn("git worktree add", prepare)
+        self.assertNotIn("--detach HEAD", prepare)
+        self.assertNotIn("$(pwd)/worktrees/", prepare)
 
     def test_wrapper_formulas_route_role_agents(self) -> None:
         root = pathlib.Path(__file__).resolve().parents[1]
