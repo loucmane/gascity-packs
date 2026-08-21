@@ -3506,10 +3506,14 @@ class FormulaAssetTests(unittest.TestCase):
             "`REQUEST_JSON`\n   is a file path, not inline JSON",
             "`gc.formula_source` from the do-work\n   root metadata",
             "same pinned pack revision that supplied the formula",
-            "sole authority for base/path resolution",
-            "do not restate, reimplement, or bypass",
+            "sole authority for base/path resolution, item-branch",
+            "Do not restate, reimplement, or bypass",
+            "`BRANCH` from `branch`",
+            "`codex/<source-anchor-id>` branch",
             "`gc.conflict_base_commit`",
             "`gc.conflict_worktree_path`",
+            "`gc.conflict_worktree_branch`",
+            "Never leave a successful prepared worktree detached",
             "Never substitute\n   launcher `HEAD` or an in-repository default path",
         ):
             with self.subTest(fragment=fragment):
