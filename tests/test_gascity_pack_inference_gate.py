@@ -473,10 +473,14 @@ def test_dispatch_inference_workflow_is_manual_or_external_only() -> None:
     assert "ANTHROPIC_API_KEY:" not in workflow
 
 
-def test_ci_workflows_use_blacksmith_runner_labels() -> None:
+def test_ci_workflows_preserve_upstream_blacksmith_runner_policy() -> None:
+    portable_runner = (
+        "runs-on: ${{ github.repository_owner == 'gastownhall' && "
+        "'blacksmith-32vcpu-ubuntu-2404' || 'ubuntu-latest' }}"
+    )
     expected = {
-        ".github/workflows/ci.yml": "runs-on: blacksmith-32vcpu-ubuntu-2404",
-        ".github/workflows/codeql.yml": "runs-on: blacksmith-32vcpu-ubuntu-2404",
+        ".github/workflows/ci.yml": portable_runner,
+        ".github/workflows/codeql.yml": portable_runner,
         ".github/workflows/pack-release-compatibility.yml": "runs-on: blacksmith-32vcpu-ubuntu-2404",
     }
 
