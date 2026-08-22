@@ -3452,11 +3452,10 @@ class FormulaAssetTests(unittest.TestCase):
             "current step bead metadata",
             "gc.root_bead_id",
             "gc.input_convoy_id",
-            "gc.synthetic_kind",
-            "gc.drain_member_id",
-            "do not use the synthetic drain-unit convoy id as `<source-anchor-id>`",
+            "system-created singleton and drain-unit convoys",
+            "Do not select a tracked\n     member yourself",
+            "`gc.source_anchor_id`",
             "never persist `work_dir` on the synthetic drain-unit convoy",
-            "hard-fail if the selected source anchor id equals the synthetic input convoy id",
             "assets/scripts/prepare_worktree.py",
             "gc bd update <source-anchor-id> --set-metadata work_dir=",
             "Do not edit source files in the launcher checkout",
@@ -3468,9 +3467,9 @@ class FormulaAssetTests(unittest.TestCase):
         for fragment in (
             "Read `work_dir` from the source anchor",
             "never read `work_dir` from the synthetic drain-unit convoy",
-            "Do not infer the source anchor from dependency ids",
+            "Do not infer the\nsource anchor from dependency ids",
+            "gc.source_anchor_id",
             "`gc.work_dir` is the launcher rig root, not the implementation worktree",
-            "if the JSON output is a one-element list, unwrap the",
             "verify `pwd -P` equals",
             "cd \"$WORKTREE\"",
             "fail this step before editing",
@@ -3482,6 +3481,7 @@ class FormulaAssetTests(unittest.TestCase):
 
         close_source = node_description(root, steps["close-source-anchor"])
         for fragment in (
+            "gc.source_anchor_id",
             "Read `work_dir` from the source anchor",
             "close only `<source-anchor-id>`",
             "gc bd show <source-anchor-id> --json",

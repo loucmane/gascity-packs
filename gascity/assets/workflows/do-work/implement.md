@@ -1,20 +1,14 @@
 
-Resolve `<source-anchor-id>` using the same rules as `prepare-worktree`. For a
-synthetic drain-unit convoy, the source anchor is the original drain member in
-`gc.drain_member_id`, not the synthetic convoy id. Read `work_dir` from the source anchor, never read `work_dir` from the synthetic drain-unit convoy,
+Resolve `<source-anchor-id>` from the helper decision stamped by
+`prepare-worktree`. Read the claimed step bead's `gc.root_bead_id`, read that
+do-work root with `gc bd show <root-bead-id> --json`, and require root metadata
+`gc.source_anchor_id`. Read the source anchor at that exact id. Do not infer the
+source anchor from dependency ids or convoy metadata. Read `work_dir` from the source anchor;
+never read `work_dir` from the synthetic drain-unit convoy or
+another synthetic convoy. Then
 validate that it is an absolute existing git worktree, set `WORKTREE` to that
 path, then `cd "$WORKTREE"` before reading or editing source files. If
 `work_dir` is missing, invalid, or points at the launcher checkout, fail this step before editing.
-
-Do not infer the source anchor from dependency ids such as the
-`prepare-worktree` step. Read the claimed step bead's `gc.root_bead_id`, read
-that do-work root with `gc bd show <root-bead-id> --json`, then read the root
-metadata `gc.input_convoy_id`. Read that input convoy with `gc bd show
-<input-convoy-id> --json`; if the JSON output is a one-element list, unwrap the
-first element before reading metadata. If the input convoy has
-`gc.synthetic_kind=drain-unit-convoy`, use its `gc.drain_member_id` as the
-source anchor. Otherwise use the input convoy id as the source anchor. Then
-read the source anchor and use only its `work_dir` metadata as `WORKTREE`.
 
 `gc.work_dir` is the launcher rig root, not the implementation worktree. Use
 `gc.work_dir` only later to run `.gc/scripts/checks/build-artifact-valid.sh`.

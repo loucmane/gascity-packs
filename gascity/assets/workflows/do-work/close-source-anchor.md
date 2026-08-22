@@ -1,5 +1,9 @@
 
-Resolve `<source-anchor-id>` using the same rules as `prepare-worktree`. Read `work_dir` from the source anchor and verify the implementation commit and
+Read the do-work root through this step's `gc.root_bead_id`, require the
+helper-derived `gc.source_anchor_id` stamped by `prepare-worktree`, and use that
+exact value as `<source-anchor-id>`. Do not recompute it from dependencies or
+convoy metadata. Read `work_dir` from the source anchor and verify the
+implementation commit and
 summary evidence are present in that worktree. Write per-item summary to
 {{summary_path}} when set. If `summary_path` is not set, first use
 `gc.implementation.summary_path` from the preceding implementation step when it
