@@ -145,6 +145,67 @@ def supplied(record: dict[str, Any], key: str) -> list[object]:
     return values
 
 
+def resolve_source_anchor(
+    source_anchor_id: str,
+    source_anchor: dict[str, Any],
+    input_convoy: dict[str, Any],
+) -> tuple[str, dict[str, Any]]:
+    convoy_metadata = metadata(input_convoy)
+    if convoy_metadata.get("gc.synthetic") != "true":
+        return source_anchor_id, source_anchor
+
+    input_convoy_id = input_convoy.get("id")
+    if not isinstance(input_convoy_id, str) or not input_convoy_id.strip():
+        raise ContractConflict(WORKTREE_CONFLICT, "synthetic input convoy is missing its id")
+
+    dependencies = input_convoy.get("dependencies", [])
+    if not isinstance(dependencies, list):
+        raise ContractConflict(WORKTREE_CONFLICT, "synthetic input convoy dependencies must be a list")
+    tracked = [
+        dependency
+        for dependency in dependencies
+        if isinstance(dependency, dict) and dependency.get("dependency_type") == "tracks"
+    ]
+
+    synthetic_kind = convoy_metadata.get("gc.synthetic_kind")
+    if synthetic_kind == "drain-unit-convoy":
+        expected_id = convoy_metadata.get("gc.drain_member_id")
+        if not isinstance(expected_id, str) or not expected_id.strip():
+            raise ContractConflict(WORKTREE_CONFLICT, "synthetic drain-unit convoy is missing gc.drain_member_id")
+        matches = [member for member in tracked if member.get("id") == expected_id]
+        if len(matches) != 1:
+            raise ContractConflict(
+                WORKTREE_CONFLICT,
+                f"synthetic drain-unit convoy must track gc.drain_member_id {expected_id!r} exactly once",
+            )
+        member = matches[0]
+    else:
+        if len(tracked) != 1:
+            raise ContractConflict(
+                WORKTREE_CONFLICT,
+                f"synthetic input convoy must have exactly one tracked member; found {len(tracked)}",
+            )
+        member = tracked[0]
+        expected_id = member.get("id")
+        if not isinstance(expected_id, str) or not expected_id.strip():
+            raise ContractConflict(WORKTREE_CONFLICT, "synthetic input convoy tracked member is missing its id")
+
+    if source_anchor_id == input_convoy_id:
+        return expected_id, member
+    if source_anchor_id != expected_id:
+        raise ContractConflict(
+            WORKTREE_CONFLICT,
+            f"selected source anchor {source_anchor_id!r} does not match synthetic convoy member {expected_id!r}",
+        )
+    selected_id = source_anchor.get("id")
+    if selected_id != expected_id:
+        raise ContractConflict(
+            WORKTREE_CONFLICT,
+            f"source_anchor record id {selected_id!r} does not match selected member {expected_id!r}",
+        )
+    return expected_id, source_anchor
+
+
 def resolve_base(
     repository: Path,
     source_anchor: dict[str, Any],
@@ -291,6 +352,11 @@ def prepare(request: dict[str, Any]) -> dict[str, Any]:
     source_anchor = unwrap_record(request.get("source_anchor"), label="source_anchor")
     input_convoy = unwrap_record(request.get("input_convoy"), label="input_convoy")
     do_work_root = unwrap_record(request.get("do_work_root"), label="do_work_root")
+    source_anchor_id, source_anchor = resolve_source_anchor(
+        source_anchor_id,
+        source_anchor,
+        input_convoy,
+    )
 
     try:
         repository_root = canonical_path(
@@ -372,6 +438,7 @@ def prepare(request: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "ok": True,
+        "source_anchor_id": source_anchor_id,
         "base_commit": base_commit,
         "branch": branch,
         "worktree_path": str(worktree),

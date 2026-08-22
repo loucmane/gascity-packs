@@ -57,6 +57,7 @@ class PrepareWorktreeBehaviorTests(unittest.TestCase):
     def _request(
         self,
         *,
+        source_anchor_id: str = "anchor-123",
         source_anchor: dict[str, object] | None = None,
         input_convoy: dict[str, object] | None = None,
         do_work_root: dict[str, object] | None = None,
@@ -64,7 +65,7 @@ class PrepareWorktreeBehaviorTests(unittest.TestCase):
         return {
             "repository": str(self.launcher),
             "launcher_checkout": str(self.launcher),
-            "source_anchor_id": "anchor-123",
+            "source_anchor_id": source_anchor_id,
             "source_anchor": source_anchor or {"metadata": {}},
             "input_convoy": input_convoy or {"metadata": {}},
             "do_work_root": do_work_root or {"metadata": {}},
@@ -192,6 +193,132 @@ class PrepareWorktreeBehaviorTests(unittest.TestCase):
         self.assertEqual(second_payload.get("branch"), "codex/anchor-123")
         self.assertEqual(self._branch(worktree), "codex/anchor-123")
         self.assertEqual(marker.read_text(encoding="utf-8"), "keep me\n")
+
+    def test_synthetic_singleton_convoy_resolves_tracked_source_anchor(self) -> None:
+        worktree = self.temp / "worktrees" / "gct-3lje"
+        member = {
+            "id": "gct-3lje",
+            "metadata": {
+                "gc.base_commit": self.base_commit,
+                "gc.worktree_path": str(worktree),
+            },
+            "dependency_type": "tracks",
+        }
+        input_convoy = {
+            "id": "gct-6qcl",
+            "metadata": {"gc.synthetic": "true"},
+            "dependencies": [member],
+        }
+
+        result, payload = self._run_helper(
+            self._request(
+                source_anchor_id="gct-6qcl",
+                source_anchor=input_convoy,
+                input_convoy=input_convoy,
+            )
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(payload.get("ok"), payload)
+        self.assertEqual(payload.get("source_anchor_id"), "gct-3lje")
+        self.assertEqual(payload.get("base_commit"), self.base_commit)
+        self.assertEqual(pathlib.Path(str(payload.get("worktree_path"))).resolve(), worktree.resolve())
+        self.assertEqual(payload.get("branch"), "codex/gct-3lje")
+        self.assertEqual(self._branch(worktree), "codex/gct-3lje")
+
+    def test_synthetic_input_convoy_with_multiple_tracked_members_fails_closed(self) -> None:
+        first = {
+            "id": "gct-first",
+            "metadata": {"gc.base_commit": self.base_commit},
+            "dependency_type": "tracks",
+        }
+        second = {
+            "id": "gct-second",
+            "metadata": {"gc.base_commit": self.base_commit},
+            "dependency_type": "tracks",
+        }
+        input_convoy = {
+            "id": "gct-many",
+            "metadata": {"gc.synthetic": "true"},
+            "dependencies": [first, second],
+        }
+
+        payload = self._assert_conflict(
+            self._request(
+                source_anchor_id="gct-many",
+                source_anchor=input_convoy,
+                input_convoy=input_convoy,
+            ),
+            "gc.conflict_worktree_path",
+        )
+
+        self.assertIn("exactly one tracked member", str(payload["metadata"]["gc.conflict_worktree_path"]))
+
+    def test_synthetic_drain_convoy_resolves_declared_member(self) -> None:
+        worktree = self.temp / "worktrees" / "gct-drain-member"
+        member = {
+            "id": "gct-drain-member",
+            "metadata": {
+                "gc.base_commit": self.base_commit,
+                "gc.worktree_path": str(worktree),
+            },
+            "dependency_type": "tracks",
+        }
+        input_convoy = {
+            "id": "gct-drain-unit",
+            "metadata": {
+                "gc.synthetic": "true",
+                "gc.synthetic_kind": "drain-unit-convoy",
+                "gc.drain_member_id": "gct-drain-member",
+            },
+            "dependencies": [member],
+        }
+
+        result, payload = self._run_helper(
+            self._request(
+                source_anchor_id="gct-drain-unit",
+                source_anchor=input_convoy,
+                input_convoy=input_convoy,
+            )
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(payload.get("source_anchor_id"), "gct-drain-member")
+        self.assertEqual(payload.get("branch"), "codex/gct-drain-member")
+        self.assertEqual(self._branch(worktree), "codex/gct-drain-member")
+
+    def test_preselected_drain_member_remains_compatible(self) -> None:
+        worktree = self.temp / "worktrees" / "gct-preselected"
+        member = {
+            "id": "gct-preselected",
+            "metadata": {
+                "gc.base_commit": self.base_commit,
+                "gc.worktree_path": str(worktree),
+            },
+            "dependency_type": "tracks",
+        }
+        input_convoy = {
+            "id": "gct-drain-unit",
+            "metadata": {
+                "gc.synthetic": "true",
+                "gc.synthetic_kind": "drain-unit-convoy",
+                "gc.drain_member_id": "gct-preselected",
+            },
+            "dependencies": [member],
+        }
+
+        result, payload = self._run_helper(
+            self._request(
+                source_anchor_id="gct-preselected",
+                source_anchor=member,
+                input_convoy=input_convoy,
+            )
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(payload.get("source_anchor_id"), "gct-preselected")
+        self.assertEqual(payload.get("branch"), "codex/gct-preselected")
+        self.assertEqual(self._branch(worktree), "codex/gct-preselected")
 
     def test_existing_item_branch_at_another_commit_fails_closed(self) -> None:
         branch = "codex/anchor-123"
