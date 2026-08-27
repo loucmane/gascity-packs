@@ -22,6 +22,9 @@ fail() {
 
 BEAD_ID="${GC_BEAD_ID:-}"
 [ -n "$BEAD_ID" ] || fail "GC_BEAD_ID is required"
+GC_STORE_PATH="${GC_STORE_PATH:-}"
+[ -n "$GC_STORE_PATH" ] || fail "GC_STORE_PATH is required"
+export BEADS_DIR="$GC_STORE_PATH/.beads"
 command -v gc >/dev/null 2>&1 || fail "gc is required on PATH"
 command -v python3 >/dev/null 2>&1 || fail "python3 is required on PATH"
 
